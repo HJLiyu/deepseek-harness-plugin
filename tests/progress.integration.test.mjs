@@ -1,0 +1,50 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { GroupStore } from '../src/group-store.mjs';
+import { startGroupService } from '../src/group-service.mjs';
+import { localFetch } from '../src/group-http.mjs';
+import { apply as applyCompanion } from '../companion/index.mjs';
+import { GroupRuntime } from '../src/group-runtime.mjs';
+
+test('HTTP preview appears before completion, never enters messages, and clears on final and pause',async t=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'group-preview-'));
+  const store=new GroupStore(path.join(dir,'groups.sqlite'));
+  let entered,release;const started=new Promise(r=>entered=r),gate=new Promise(r=>release=r);
+  const runtime={appOpen:async()=>true,turn:async(_g,_d,_s,preview)=>{preview('正在生成中文回答');entered();await gate;return {text:JSON.stringify({message:'最终回答',status:'done',summary:'done',verification:['fixture']})}}};
+  const hub=await startGroupService({store,runtime,schedule:false});
+  t.after(async()=>{release();await hub.close();fs.rmSync(dir,{recursive:true,force:true,maxRetries:3})});
+  const group=store.create({repo:dir,models:{codex:{model:'c'},harness:{model:'h'}}});group.contexts={codex:'ct',harness:'ht'};group.initialized={codex:true,harness:true};group.worktrees={codex:dir,harness:dir};group.status='active';store.save(group);
+  const r=store.input(group.id,{content:'fixture',origin:{adapter:'test',sessionId:'s',messageId:'m'}}).request;
+  r.status='active';r.phase='execution';r.actions=[{phase:'work',member:'codex'}];r.agreement={owner:'codex',integrator:'codex',review:false,tasks:{codex:'',harness:''}};store.saveRequest(r);group.activeRequestId=r.id;store.save(group);
+  const tick=hub.engine.tick(group.id);await started;
+  assert.equal((await fetch(hub.descriptor.url+'/api/groups/'+group.id)).status,401);
+  const live=await localFetch(hub.descriptor,'/api/groups/'+group.id);assert.equal(live.answerPreview.text,'正在生成中文回答');
+  assert.equal(store.messages(group.id).messages.some(m=>m.content.includes('正在生成中文回答')),false);
+  assert.equal(store.request(r.id).answerPreview,undefined);
+  release();await tick;
+  const final=await localFetch(hub.descriptor,'/api/groups/'+group.id);assert.equal(final.answerPreview,null);
+  assert.equal(store.messages(group.id).messages.filter(m=>m.content.includes('最终回答')).length,1);
+  hub.engine.answerPreviews.entries.set(group.id,{deliveryId:'old',text:'stale'});hub.engine.control(group.id,'pause');assert.equal(hub.engine.answerPreviews.entries.size,0);
+});
+
+test('native companion preview endpoint authenticates and exposes only the bound active turn',async t=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'companion-preview-'));const store=new GroupStore(path.join(dir,'groups.sqlite'));
+  const group=store.create({repo:dir,models:{codex:{model:'c'},harness:{model:'h'}}});group.status='idle';group.contexts={codex:'ct',harness:'ht'};group.worktrees={codex:dir,harness:dir};group.harnessAdapterId='harness-desktop';store.save(group);
+  const rt=new GroupRuntime(store),descriptorFile=path.join(dir,'service.json');const hub=await startGroupService({store,runtime:rt,schedule:false,descriptorFile});
+  const effects=[],events=[];let entered,release;const started=new Promise(r=>entered=r),gate=new Promise(r=>release=r);
+  const agent={id:'ht',status:'running',session:{},inbox:{nextTurn:[],nextStep:[]},ctx:{parallel:async()=>{}},whenIdle:async()=>gate,cancel(){}};
+  const ctx={on(){},effect(fn){effects.push(fn())},webServer:{register:()=>()=>{}},agents:{get:()=>agent},permissionPresets:{set(){}},sessionController:{rename:async r=>({title:r.title}),resolveAgent:async()=>({agent}),inspect:async()=>({events}),prompt:async r=>{events.push({type:'turn/start',seq:1,data:{turn:1}},{type:'user/message',seq:2,data:{source:{kind:'user',rpcId:r.requestId},content:r.content}},{type:'assistant/message',seq:3,data:{turn:1,message:{content:[{type:'reasoning',text:'SECRET'},{type:'text',text:'对外回答片段'}]}}});entered();return {accepted:true}}}};
+  t.after(async()=>{release();for(const dispose of effects.reverse())if(typeof dispose==='function')dispose();await hub.close();fs.rmSync(dir,{recursive:true,force:true,maxRetries:3})});
+  await applyCompanion(ctx,{descriptorFile,adapterId:'harness-desktop'});const adapter=rt.adapter(group);
+  const delivery={id:'d',groupId:group.id,prompt:'fixture'};const done=localFetch(adapter,'/turn',{sessionId:'ht',delivery});await started;
+  assert.equal((await fetch(adapter.url+'/progress',{method:'POST',body:'{}'})).status,403);
+  assert.equal((await localFetch(adapter,'/progress',{sessionId:'ht',deliveryId:'wrong'})).text,'');
+  assert.equal((await localFetch(adapter,'/progress',{sessionId:'ht',deliveryId:'d'})).text,'对外回答片段');
+  assert.deepEqual(await rt.recover(group,{...delivery,member:'harness'}),{pending:true,turnId:1});
+  assert.equal(await rt.recover(group,{...delivery,id:'wrong',member:'harness'}),null);
+  events.push({type:'turn/end',data:{turn:1,reason:{kind:'completed'}}});release();await done;
+  assert.equal((await localFetch(adapter,'/progress',{sessionId:'ht',deliveryId:'d'})).text,'');
+});

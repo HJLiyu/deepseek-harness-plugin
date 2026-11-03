@@ -1,0 +1,10 @@
+{
+  "name": "codex-harness-community",
+  "interface": { "displayName": "Codex × Harness Community" },
+  "plugins": [{
+    "name": "codex-deepseek-harness",
+    "source": { "source": "local", "path": "./" },
+    "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+    "category": "Developer Tools"
+  }]
+}

@@ -1,0 +1,21 @@
+import test from'node:test';import assert from'node:assert/strict';import{randomUUID}from'node:crypto';
+import{codexTurn}from'../src/codex.mjs';import{GroupRuntime}from'../src/group-runtime.mjs';import{GroupStore}from'../src/group-store.mjs';
+import{startGroupService}from'../src/group-service.mjs';import{localFetch}from'../src/group-http.mjs';
+test('active reader uses original RPC and exact turn, disappears on native completion',async()=>{
+ let handlers,reader,ready,disposed=false,status='inProgress',readId='turn';const started=new Promise(r=>ready=r);
+ const result=codexTurn({threadId:'c',cwd:process.cwd(),prompt:'p',onActiveReader:r=>{reader=r;ready();return()=>disposed=true},rpcFactory:(_cwd,h)=>{handlers=h;return{notify(){},async close(){},async request(method){if(method==='turn/start')return{turn:{id:'turn'}};if(method==='thread/read')return{thread:{id:'c',turns:[{id:readId,status,items:[]}]}};return{};}}}});
+ await started;assert.deepEqual(await reader.read(),{pending:true,turnId:'turn'});readId='other';assert.equal(await reader.read(),null);readId='turn';status='completed';assert.equal(await reader.read(),null);
+ handlers.onNotification('item/completed',{item:{type:'agentMessage',text:'done'}});handlers.onNotification('turn/completed',{turn:{id:'turn',status:'completed'}});await result;assert.equal(disposed,true);assert.equal(await reader.read(),null);
+});
+test('runtime binds live observation to original admission and falls back after closure or binding change',async t=>{
+ const s=new GroupStore(':memory:');t.after(()=>s.close());const g=s.create({repo:process.cwd(),models:{codex:{model:'m'},harness:{model:'h'}}});g.status='active';g.contexts={codex:'c',harness:'h'};g.worktrees={codex:process.cwd(),harness:process.cwd()};const{request:r}=s.input(g.id,{content:'read-only'});g.activeRequestId=r.id;s.save(g);
+ const d={id:randomUUID(),groupId:g.id,requestId:r.id,member:'codex',phase:'planning',started:true,status:'pending',revision:r.revision,epoch:g.epoch,prompt:'work'};s.saveDelivery(d);let ready,release,fallback=0;const started=new Promise(r=>ready=r),gate=new Promise(r=>release=r);
+ const rt=new GroupRuntime(s,{effortCatalog:async()=>({data:[{model:'m',supportedReasoningEfforts:['low']}]}),codexRecovery:async()=>{fallback++;return null},codexCall:async args=>{args.onAdmitted({threadId:'c',turnId:'turn',route:'app-server'});assert.throws(()=>args.onActiveReader({threadId:'other',turnId:'turn',read:async()=>({pending:true,turnId:'turn'})}),/original admission/);args.onActiveReader({threadId:'c',turnId:'turn',read:async()=>({pending:true,turnId:'turn'})});ready();await gate;return{text:'done'};}});
+ const work=rt.turn(g,d);await started;const original=s.delivery(d.id);assert.deepEqual(await rt.recover(g,original),{pending:true,turnId:'turn',source:'original_native_connection'});assert.equal(fallback,0);
+ assert.equal(await rt.recover(g,{...original,epoch:original.epoch+1}),null);assert.equal(fallback,1);release();await work;assert.equal(rt.nativeReaders.size,0);assert.equal(await rt.recover(g,original),null);assert.equal(fallback,2);
+});
+test('authenticated native status only observes the original pending delivery, never dispatches or settles',async()=>{
+ const s=new GroupStore(':memory:'),g=s.create({repo:process.cwd(),models:{}}),{request:r}=s.input(g.id,{content:'read'});g.activeRequestId=r.id;g.status='active';s.save(g);const id=randomUUID();r.deliveryId=id;s.saveRequest(r);s.saveDelivery({id,groupId:g.id,requestId:r.id,started:true,status:'pending',member:'codex',phase:'work',nativeTurnId:'turn'});let reads=0;
+ const service=await startGroupService({store:s,schedule:false,runtime:{turn:()=>assert.fail('must not dispatch'),recover:async(_g,d)=>{reads++;assert.equal(d.id,id);return{pending:true,turnId:'turn',source:'original_native_connection',text:'must not expose raw content'}}}});
+ try{const x=await localFetch(service.descriptor,`/api/groups/${g.id}/native-status`);assert.equal(reads,1);assert.deepEqual(x.observations,[{deliveryId:id,member:'codex',phase:'work',nativeTurnId:'turn',state:'pending',source:'original_native_connection'}]);assert.equal(s.delivery(id).status,'pending');assert.equal(s.request(r.id).deliveryId,id);}finally{await service.close();}
+});

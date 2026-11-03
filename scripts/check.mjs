@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import vm from 'node:vm';
+const files = ['server.mjs', 'cli.mjs', 'worker.mjs', 'group-worker.mjs'];
+for (const dir of ['src', 'hooks', 'companion']) for (const name of fs.readdirSync(dir)) if (/\.(mjs|cjs|js)$/.test(name)) files.push(path.join(dir, name));
+for (const file of files) execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' });
+for (const file of ['plugin.json', 'mcp.json', 'hooks/hooks.json', 'companion/package.json']) JSON.parse(fs.readFileSync(file, 'utf8'));
+new vm.Script(fs.readFileSync('web/group.html', 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1]);
+new vm.Script(fs.readFileSync('web/connections.html', 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1]);
+process.stdout.write(`Syntax and manifests verified: ${files.length} modules plus group page.\n`);

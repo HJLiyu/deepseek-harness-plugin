@@ -1,0 +1,37 @@
+{
+  "name": "dsh-codex-group",
+  "version": "0.3.2",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  },
+  "files": [
+    "index.mjs",
+    "client.js",
+    "bridge-http.mjs",
+    "cordis.patch.yml",
+    "shell-probe.mjs",
+    "human-proof.mjs",
+    "pwsh-encoding.mjs",
+    "build.mjs",
+    "bridge-progress.mjs",
+    "approval-text.mjs",
+    "pipe-compat.mjs",
+    "owned-pipe.cjs",
+    "owned-pipe-win32.c",
+    "owned-pipe-win32-x64.dll",
+    "effort.mjs"
+  ]
+}

@@ -1,0 +1,14 @@
+data/
+_acp_probe/
+*.tmp
+.planning/
+node_modules/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+__pycache__/
+.venv/
+*.log

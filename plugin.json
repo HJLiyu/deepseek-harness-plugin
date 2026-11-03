@@ -1,0 +1,33 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "codex-deepseek-harness",
+  "version": "0.3.2",
+  "description": "Persistent project groups with dedicated Codex and Harness contexts, shared chat and visible peer collaboration.",
+  "author": {
+    "name": "HJLiyu"
+  },
+  "keywords": [
+    "codex",
+    "deepseek",
+    "collaboration"
+  ],
+  "extensions": {
+    "com.openai": {
+      "hooks": "./hooks/hooks.json",
+      "interface": {
+        "displayName": "Codex × Harness",
+        "shortDescription": "Project groups with native, API and CLI AI partners",
+        "longDescription": "Persistent project groups with reusable agent contexts, visible collaboration, isolated worktrees and human approvals.",
+        "developerName": "HJLiyu",
+        "category": "Developer Tools",
+        "capabilities": [
+          "Read",
+          "Write"
+        ],
+        "defaultPrompt": [
+          "Start a Codex × Harness collaboration for this project."
+        ]
+      }
+    }
+  }
+}
