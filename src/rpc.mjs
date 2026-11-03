@@ -88,12 +88,20 @@ export class RpcProcess {
     this.#fail(new Error('RPC process closed.'));
     try { this.lines.close(); } catch { /* ignore */ }
     try { this.child.stdin.end(); } catch { /* ignore */ }
-    if (this.child.exitCode === null) {
-      await new Promise(resolve=>{
-        const timer=setTimeout(resolve,1500);
-        this.child.once('exit',()=>{clearTimeout(timer);resolve();});
-        try { this.child.kill(); } catch {clearTimeout(timer);resolve();}
-      });
+    const alive=()=>this.child.exitCode===null&&this.child.signalCode===null;
+    const waitExit=ms=>new Promise(resolve=>{
+      if(!alive())return resolve();
+      const exit=()=>{clearTimeout(timer);resolve();};
+      const timer=setTimeout(()=>{this.child.removeListener('exit',exit);resolve();},ms);
+      this.child.once('exit',exit);
+    });
+    // Let CLI launchers propagate EOF and dispose their Host before killing
+    // the launcher; killing it immediately can orphan the inherited pipes.
+    if(alive())await waitExit(1200);
+    if(alive()){
+      try { this.child.kill(); } catch { /* already exited */ }
+      await waitExit(1500);
     }
+    this.child.stdout.destroy();this.child.stderr.destroy();
   }
 }

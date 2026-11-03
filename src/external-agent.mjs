@@ -4,7 +4,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { RpcProcess } from './rpc.mjs';
-import { findCodexBinary, codexTurn, codexCreateThread, codexEffortCatalog, codexRecoverDelivery } from './codex.mjs';
+import { findCodexBinary, codexTurn, codexEffortCatalog, codexRecoverDelivery } from './codex.mjs';
 import { initializeHarness, resolveModelValue, createToolCallTracker } from './harness.mjs';
 
 const schema=(properties,required)=>({type:'object',properties,required,additionalProperties:false});
@@ -74,11 +74,22 @@ export class ExternalAgent {
   }
   async create(id,cwd,model){
     const p=this.connections.get(id);let nativeId;
-    if(p.kind==='codex-cli')nativeId=await codexCreateThread({cwd,model,rpcFactory:(dir,h)=>factory(p,dir,h)});
+    // A thread/start-only Codex context has no durable rollout. Create it in
+    // the same RPC connection as the first actual delivery, without a paid
+    // bootstrap turn or an unusable resume-before-first-message.
     if(p.kind==='harness-acp'){const rpc=factory(p,cwd);try{await initializeHarness(rpc);const s=await rpc.request('session/new',{cwd,mcpServers:[]});nativeId=s.sessionId;}finally{await rpc.close();}}
     const session={id:randomUUID(),connectionId:id,cwd,model,nativeId,messages:[]};this.put('sessions',session.id,session);return {sessionId:session.id};
   }
-  recover(sessionId,delivery){const saved=this.row('turns',delivery.id);if(!saved)return {notAdmitted:true};if(saved.sessionId!==sessionId||saved.hash!==createHash('sha256').update(delivery.prompt).digest('hex'))throw Error('External recovery binding mismatch.');return saved.result||null;}
+  recover(sessionId,delivery){
+    const saved=this.row('turns',delivery.id);if(!saved)return {notAdmitted:true};
+    if(saved.sessionId!==sessionId||saved.hash!==createHash('sha256').update(delivery.prompt).digest('hex'))throw Error('External recovery binding mismatch.');
+    if(saved.result)return saved.result;
+    const session=this.row('sessions',sessionId),p=this.connections.get(session.connectionId);
+    if(p.kind==='codex-cli'&&session.nativeId&&saved.nativeTurnId)return codexRecoverDelivery({threadId:session.nativeId,nativeTurnId:saved.nativeTurnId,cwd:session.cwd,prompt:delivery.prompt,desktopAvailable:()=>false,rpcFactory:(dir,h)=>factory(p,dir,h)}).then(result=>{
+      if(result?.recovered&&typeof result.text==='string'||result?.nativeFailure){result.externalReceipt={sessionId,deliveryId:delivery.id,promptHash:saved.hash,kind:p.kind};saved.result=result;saved.state='completed';this.put('turns',delivery.id,saved);}return result;
+    });
+    return null;
+  }
   async turn(sessionId,delivery,{signal,onAnswer,approve,guard}){
     const session=this.row('sessions',sessionId);if(!session)throw Error('External context missing.');
     const old=this.row('turns',delivery.id);if(old){if(old.sessionId!==sessionId||old.hash!==createHash('sha256').update(delivery.prompt).digest('hex'))throw Error('External delivery binding changed.');if(old.result)return old.result;throw Error('External delivery outcome unknown; do not replay.');}
@@ -99,7 +110,7 @@ export class ExternalAgent {
           const response=await this.connections.api(p,'/chat/completions',{model:session.model,messages,tools:agentTools.map(f=>({type:'function',function:f})),stream:false},{signal});
           if(typeof response.usage?.total_tokens==='number')total+=response.usage.total_tokens;else known=false;
           const m=response.choices?.[0]?.message;if(!m||m.role!=='assistant')throw Error('Invalid assistant response.');
-          const entry={role:'assistant',content:typeof m.content==='string'?m.content:null,...(m.tool_calls?{tool_calls:m.tool_calls}:{})};messages.push(entry);
+          const entry={role:'assistant',content:typeof m.content==='string'?m.content:null,...(m.tool_calls?{tool_calls:m.tool_calls}:{}),...(typeof m.reasoning_content==='string'?{reasoning_content:m.reasoning_content}:{})};messages.push(entry);
           journal.state='received';journal.lastResponse=entry;this.put('turns',delivery.id,journal);
           if(!m.tool_calls?.length){result={text:entry.content||'',usage:known?{totalTokens:total}:null,usageScope:'allModelCalls',status:'completed'};session.messages.push(...messages.slice(start));break;}
           if(!Array.isArray(m.tool_calls)||m.tool_calls.length>16)throw Error('Too many tool calls.');
@@ -113,9 +124,9 @@ export class ExternalAgent {
         }
         if(!result)throw Error('Reached 20 tool iterations; report partial work before retrying.');
       }else if(p.kind==='codex-cli'){
-        result=await codexTurn({threadId:session.nativeId,cwd:session.cwd,model:session.model,prompt:delivery.prompt,signal,onAnswer,
+        result=await codexTurn({create:!session.nativeId,threadId:session.nativeId,cwd:session.cwd,model:session.model,prompt:delivery.prompt,signal,onAnswer,
           desktopAvailable:()=>false,rpcFactory:(dir,h)=>factory(p,dir,h),sandbox:['planning','review'].includes(delivery.phase)?'read-only':'workspace-write',approvalPolicy:'on-request',
-          onApproval:(method,params)=>permission(method,params),onAdmitted:r=>{journal.nativeTurnId=r.turnId;this.put('turns',delivery.id,journal);}});
+          onApproval:(method,params)=>permission(method,params),onAdmitted:r=>{session.nativeId=r.threadId;journal.nativeTurnId=r.turnId;this.db.exec('BEGIN IMMEDIATE');try{this.put('turns',delivery.id,journal);this.put('sessions',sessionId,session);this.db.exec('COMMIT');}catch(e){this.db.exec('ROLLBACK');throw e;}}});
       }else{
         result=await this.acp(p,session,delivery,{signal,onAnswer,permission});
       }
@@ -146,6 +157,6 @@ export class ExternalAgent {
       const loaded=await rpc.request(method,{sessionId:session.nativeId,cwd:session.cwd,mcpServers:[]});
       const value=resolveModelValue(loaded.configOptions,session.model);if(value)await rpc.request('session/set_config_option',{sessionId:session.nativeId,configId:'model',value});
       signal?.throwIfAborted();const result=await rpc.request('session/prompt',{sessionId:session.nativeId,prompt:[{type:'text',text:delivery.prompt}]},30*60*1000);if(result.stopReason!=='end_turn')throw Error('ACP turn did not end normally.');return {text,status:'completed',usage:null};
-    }finally{signal?.removeEventListener('abort',abort);await rpc.close();if(fs.existsSync(receipt))fs.unlinkSync(receipt);}
+    }finally{signal?.removeEventListener('abort',abort);await rpc.request('session/close',{sessionId:session.nativeId},5000).catch(()=>{});await rpc.close();if(fs.existsSync(receipt))fs.unlinkSync(receipt);}
   }
 }

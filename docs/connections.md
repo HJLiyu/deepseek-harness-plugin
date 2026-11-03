@@ -9,7 +9,7 @@ API 请求不自动重试，拒绝访问和额度错误作为已知失败结算�
 - 真实本机 HTTP 兼容服务：模型目录、多次 function call、文件写入、上下文复用、HTTP 401、写入后网络断开。
 - 真实 Node 子进程：Codex app-server 与 Harness ACP 握手、会话创建／恢复、最终消息与阶段权限回执。
 - 越界路径、junction、计划／复核禁写、过期需求、命令拒绝、输出上限和原生真人审批防重用。
-- Windows 本机实装 Codex／Harness 模型目录和 Codex command/exec 沙箱只读探针；Harness 真实恢复及策略加载在发送推理前中断验证。
+- Windows 本机实装 Codex／Harness 模型目录和 Codex command/exec 沙箱只读探针；Harness 真实恢复及策略加载在发送推理前中断验证；另以短回复验证真实 Harness 推理及 Codex CLI 连续两轮上下文复用。
 
 真实供应商付费推理不纳入默认测试。CLI、Harness 和桌面协议会随版本变化；不支持的能力应报告具体缺口，不自动切换成完整权限。公开 CI 与本机全套测试应在合并前通过。
 

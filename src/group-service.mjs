@@ -340,9 +340,7 @@ export async function startGroupService({ store = new GroupStore(), runtime, too
       if(req.method==='POST'&&url.pathname==='/api/connections/test'){
         const b=await readBody(req);return sendJson(res,200,await operation(async()=>{
           if(!b.dialogue)return runtime.external.catalog(b.id);
-          const p=runtime.connections.get(b.id);if(p.kind!=='api')throw Error('CLI 连通测试仅初始化协议与目录；实际推理请在专用群验收。');
-          const r=await runtime.connections.api(p,'/chat/completions',{model:b.model||p.model,messages:[{role:'user',content:'Reply CONNECTION-OK only. Do not use tools.'}],max_tokens:32,stream:false});
-          return {ok:Boolean(r.choices?.[0]?.message),usage:r.usage||null,billable:true};
+          return runtime.connections.testDialogue(b.id,b.model);
         }));
       }
       if (req.method === 'GET' && url.pathname === '/api/projects/defaults') return sendJson(res, 200, { projectsRoot: process.env.HARNESS_PROJECTS_ROOT || (store.list()[0]?.repo ? path.dirname(store.list()[0].repo) : path.join(os.homedir(), 'Codex', 'projects')) });

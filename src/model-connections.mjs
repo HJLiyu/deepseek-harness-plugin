@@ -61,6 +61,13 @@ export class ModelConnections {
     if(p.auth!=='none'&&!key)throw Error(`缺少密钥：请设置 ${p.keyEnv||'本机密钥'}，然后重开服务，或使用本机加密保存。`);
     return key;
   }
+  async testDialogue(id,model){
+    const p=this.get(id);if(p.kind!=='api')throw Error('CLI 连通测试仅初始化协议与目录；实际推理请在专用群验收。');
+    model=model||p.model;if(!model)throw Error('请先填写测试模型。');
+    const r=await this.api(p,'/chat/completions',{model,messages:[{role:'user',content:'Reply CONNECTION-OK only. Do not use tools.'}],...(p.preset==='openai'?{max_completion_tokens:64}:{max_tokens:32}),stream:false});
+    if(typeof r.choices?.[0]?.message?.content!=='string'||!r.choices[0].message.content.trim())throw Error('服务已响应，但没有返回文本；请检查模型及其推理预算，或在专用群中验证。');
+    return {ok:true,usage:r.usage||null,billable:true};
+  }
   async api(p,route,body,{signal,timeoutMs=120000}={}) {
     const key=await this.key(p),abort=AbortSignal.any([AbortSignal.timeout(timeoutMs),...(signal?[signal]:[])]);
     let response;

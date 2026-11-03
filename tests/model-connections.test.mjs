@@ -10,6 +10,7 @@ import { GroupRuntime } from '../src/group-runtime.mjs';
 import { GroupStore } from '../src/group-store.mjs';
 import { GroupPermissions } from '../src/group-permissions.mjs';
 import { apply as applyAcpPolicy } from '../src/acp-policy.mjs';
+import { RpcProcess } from '../src/rpc.mjs';
 
 function fixture(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'model-connection-')),cleanup=[];t.after(async()=>{for(const fn of cleanup.reverse())await fn();fs.rmSync(dir,{recursive:true,force:true});});const c=new ModelConnections(dir);return {dir,c,cleanup};}
 async function apiFixture(t,handler){const f=fixture(t);const server=http.createServer(async(req,res)=>{const chunks=[];for await(const b of req)chunks.push(b);const body=chunks.length?JSON.parse(Buffer.concat(chunks)):null;handler(req,res,body);});await new Promise(r=>server.listen(0,'127.0.0.1',r));f.cleanup.push(()=>new Promise(r=>{server.closeAllConnections();server.close(r);}));const p=await f.c.save({preset:'ollama',baseUrl:`http://127.0.0.1:${server.address().port}/v1`,model:'test-model'});const agent=new ExternalAgent(f.c);f.cleanup.push(()=>agent.db.close());return {...f,p,agent};}
@@ -31,6 +32,12 @@ test('API multi-step tools, persistent context, durable recovery and replay refu
  assert.equal(f.agent.recover(s.sessionId,d).text,'first complete');assert.equal((await f.agent.turn(s.sessionId,d,options)).text,'first complete');assert.equal(calls,2);
  await assert.rejects(f.agent.turn(s.sessionId,{...d,prompt:'different'},options),/binding/);
  await f.agent.turn(s.sessionId,{id:'d2',prompt:'second goal',phase:'work'},options);assert.ok(requests.at(-1).messages.some(m=>m.content==='first complete'));assert.equal(f.agent.row('sessions',s.sessionId).id,s.sessionId);
+});
+test('OpenAI dialogue test uses completion budget, requires text and reports actual usage',async t=>{
+ let last;const f=await apiFixture(t,(req,res,body)=>{last=body;reply(res,{content:'CONNECTION-OK'});});
+ const p=await f.c.save({preset:'openai',baseUrl:f.c.get(f.p.id).baseUrl,auth:'none',model:'test-model'});
+ const r=await f.c.testDialogue(p.id);assert.equal(r.ok,true);assert.equal(r.usage.total_tokens,5);assert.equal(last.max_completion_tokens,64);assert.equal(last.max_tokens,undefined);
+ await f.c.testDialogue(f.p.id);assert.equal(last.max_tokens,32);
 });
 test('project tools refuse review writes, junction escape, stale control and commands without approval',async t=>{
  const {dir}=fixture(t);const root=path.join(dir,'workspace');fs.mkdirSync(root);const other=path.join(dir,'outside.txt');fs.writeFileSync(other,'outside');let prompts=0,commands=0;
@@ -73,12 +80,18 @@ test('native command executor sends explicit sandbox and caps output, rejects no
 test('unknown command effects stop the tool loop instead of asking the model to repeat',async t=>{
  const f=fixture(t);await assert.rejects(executeAgentTool({name:'run_command',arguments:{command:['example-command']}},{root:f.dir,phase:'work',guard(){},approve:async()=>true,command:async()=>{throw Error('connection lost after dispatch');}}),e=>e.code==='EXTERNAL_EFFECT_UNKNOWN');
 });
+test('RPC close gives a CLI launcher time to dispose its child Host',async t=>{
+ const {dir}=fixture(t),file=path.join(dir,'launcher.mjs'),marker=path.join(dir,'closed');
+ fs.writeFileSync(file,`import {spawn} from 'node:child_process';import readline from 'node:readline';import fs from 'node:fs';const host=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore',windowsHide:true});const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{const m=JSON.parse(line);process.stdout.write(JSON.stringify({id:m.id,result:{pid:host.pid}})+'\\n')});rl.on('close',()=>{host.once('exit',()=>fs.writeFileSync(${JSON.stringify(marker)},'disposed'));host.kill();});`);
+ const rpc=new RpcProcess(process.execPath,[file]);const {pid}=await rpc.request('initialize');t.after(()=>{try{process.kill(pid);}catch{}});await rpc.close();assert.equal(fs.readFileSync(marker,'utf8'),'disposed');assert.throws(()=>process.kill(pid,0));
+});
 test('external Codex CLI uses real subprocess RPC and reuses its dedicated context',async t=>{
  const {dir,c,cleanup}=fixture(t);const script=path.join(dir,'fixture.mjs');
  fs.writeFileSync(script,`import readline from 'node:readline';const send=m=>process.stdout.write(JSON.stringify(m)+'\\n');readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.id===undefined)return;let result={};if(m.method==='thread/start')result={thread:{id:'peer-thread'}};if(m.method==='thread/resume')result={thread:{id:'peer-thread'}};if(m.method==='model/list')result={data:[{id:'fixture-model'}],nextCursor:null};if(m.method==='turn/start'){result={turn:{id:'peer-turn'}};send({id:m.id,result});setTimeout(()=>{send({method:'item/completed',params:{item:{type:'agentMessage',text:'CLI-OK'}}});send({method:'turn/completed',params:{turn:{id:'peer-turn',status:'completed'}}});},20);return;}send({id:m.id,result});});`);
  const p=await c.save({preset:'codex-cli',binary:process.execPath,args:[script],model:'fixture-model'}),agent=new ExternalAgent(c);cleanup.push(()=>agent.db.close());
- assert.equal((await agent.catalog(p.id,dir)).models[0].id,'fixture-model');const session=await agent.create(p.id,dir,'fixture-model');assert.equal(agent.row('sessions',session.sessionId).nativeId,'peer-thread');
- const r=await agent.turn(session.sessionId,{id:'cli-delivery',prompt:'goal',phase:'work'},{guard(){},approve:async()=>false});assert.equal(r.text,'CLI-OK');assert.equal(r.externalReceipt.kind,'codex-cli');
+ assert.equal((await agent.catalog(p.id,dir)).models[0].id,'fixture-model');const session=await agent.create(p.id,dir,'fixture-model');assert.equal(agent.row('sessions',session.sessionId).nativeId,undefined);
+ const r=await agent.turn(session.sessionId,{id:'cli-delivery',prompt:'goal',phase:'work'},{guard(){},approve:async()=>false});assert.equal(r.text,'CLI-OK');assert.equal(r.externalReceipt.kind,'codex-cli');assert.equal(agent.row('sessions',session.sessionId).nativeId,'peer-thread');
+ const next=await agent.turn(session.sessionId,{id:'cli-delivery-2',prompt:'next goal',phase:'review'},{guard(){},approve:async()=>false});assert.equal(next.threadId,'peer-thread');
 });
 test('owner approval ignores old turns, wrong chats and model labels; native fresh decision releases exactly once',async t=>{
  const {dir,cleanup}=fixture(t),store=new GroupStore(path.join(dir,'groups.sqlite'));cleanup.push(()=>store.close());
