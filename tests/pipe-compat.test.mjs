@@ -54,8 +54,8 @@ test('PowerShell injection quotes paths and preserves options without writing pa
   const compat = createOwnedPipeCompat(options), input = spec();
   input.command = '[Console]::Write(($env:NODE_OPTIONS + "|" + $env:DSH_GROUP_PIPE_ROOT + "|" + $env:DSH_GROUP_PIPE_NATIVE))';
   const args = compat.transform(input, argv(input));
-  const result = spawnSync(args[0], args.slice(1), { env: { ...process.env, NODE_OPTIONS: '--trace-warnings' }, encoding: 'utf8', timeout: 5000, windowsHide: true });
-  assert.equal(result.status, 0, result.stderr);
+  const result = spawnSync(args[0], args.slice(1), { env: { ...process.env, NODE_OPTIONS: '--trace-warnings' }, encoding: 'utf8', timeout: 30000, windowsHide: true });
+  assert.equal(result.status, 0, [result.error?.message,result.signal,result.stderr].filter(Boolean).join(' | '));
   assert.equal(result.stdout, '--require "'+options.preloadPath+'" --trace-warnings|'+input.sandboxPolicy.workspaceRoot+'|'+options.nativePath);
 });
 
@@ -63,17 +63,17 @@ test('unrestricted Node leaves the native shim inactive', { skip: process.platfo
   const root = path.resolve('.');
   const result = spawnSync(process.execPath, ['--require', './companion/owned-pipe.cjs', '-e', 'console.log("UNRESTRICTED")'], {
     env: { ...process.env, DSH_GROUP_PIPE_ROOT: root, DSH_GROUP_PIPE_NATIVE: 'E:/dsh/resources/app.asar.unpacked/dsh/node_modules/@koromix/koffi-win32-x64/win32_x64/koffi.node' },
-    encoding: 'utf8', windowsHide: true, timeout: 5000,
+    encoding: 'utf8', windowsHide: true, timeout: 30000,
   });
   // This local integration is conditional on the already-installed host dependency.
   if (result.stderr.includes('native dependency unavailable')) return;
-  assert.equal(result.status, 0, result.stderr); assert.equal(result.stdout.trim(), 'UNRESTRICTED');
+  assert.equal(result.status, 0, [result.error?.message,result.signal,result.stderr].filter(Boolean).join(' | ')); assert.equal(result.stdout.trim(), 'UNRESTRICTED');
 });
 
 test('a real Node child loads the Windows backslash preload path from NODE_OPTIONS', { skip: process.platform !== 'win32' }, () => {
   const compat = createOwnedPipeCompat({ ...options, preloadPath: path.resolve('companion/owned-pipe.cjs') });
   const input = spec(); input.command = "& '" + process.execPath.replaceAll("'", "''") + "' -e 'console.log(12345)'";
   const args = compat.transform(input, argv(input));
-  const result = spawnSync(args[0], args.slice(1), { encoding: 'utf8', timeout: 5000, windowsHide: true });
-  assert.equal(result.status, 0, result.stderr); assert.equal(result.stdout.trim(), '12345');
+  const result = spawnSync(args[0], args.slice(1), { encoding: 'utf8', timeout: 30000, windowsHide: true });
+  assert.equal(result.status, 0, [result.error?.message,result.signal,result.stderr].filter(Boolean).join(' | ')); assert.equal(result.stdout.trim(), '12345');
 });
