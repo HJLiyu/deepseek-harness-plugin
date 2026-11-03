@@ -6,6 +6,8 @@ const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const target = path.resolve(process.argv[2] ?? path.join(source, '..', 'plugins', 'codex-deepseek-harness'));
 const files = [
   'plugin.json', 'mcp.json', 'README.md', 'verification.md', 'server.mjs', 'worker.mjs', 'cli.mjs',
+  'desktop/service.mjs',
+  'docs/connections.md', 'docs/desktop.md',
   'skills/collaborate/SKILL.md',
   'src/rpc.mjs', 'src/state.mjs', 'src/events.mjs', 'src/git.mjs', 'src/codex.mjs',
   'src/turn-deadline.mjs',
@@ -21,7 +23,8 @@ const files = [
   'companion/approval-text.mjs', 'companion/bridge-progress.mjs', 'companion/package.json', 'companion/index.mjs', 'companion/effort.mjs', 'companion/client.js', 'companion/cordis.patch.yml', 'companion/shell-probe.mjs', 'companion/human-proof.mjs', 'companion/pwsh-encoding.mjs', 'companion/build.mjs',
   'companion/pipe-compat.mjs', 'companion/owned-pipe.cjs', 'companion/owned-pipe-win32.c', 'companion/owned-pipe-win32-x64.dll',
 ];
-if (target === source || target.startsWith(source + path.sep)) throw new Error('Package target must be outside source repository.');
+const desktopOutput=process.argv.includes('--desktop-output')&&target.startsWith(path.join(source,'data','desktop')+path.sep)&&path.basename(target)==='runtime';
+if (target === source || target.startsWith(source + path.sep)&&!desktopOutput) throw new Error('Package target must be outside source repository.');
 fs.mkdirSync(target, { recursive: true });
 let bytes = 0;
 for (const relative of files) {

@@ -4,6 +4,10 @@
 
 这是面向个人本机使用的社区预览版。目前实际验证环境是 Windows、Node.js 24、Codex 桌面版／CLI 和 DeepSeek Harness。欢迎通过 [Issues](https://github.com/HJLiyu/deepseek-harness-plugin/issues) 提交问题、建议和兼容性结果，也欢迎 PR。
 
+## 独立桌面软件
+
+[下载 Windows 桌面预览版](https://github.com/HJLiyu/deepseek-harness-plugin/releases/tag/desktop-v0.4.0-preview.1)，解压后双击 `CodexHarness.exe`。它有独立窗口、单实例、加密草稿恢复，群聊和模型接入都在里面。通过“应用 → 安装到此电脑”创建桌面和开始菜单入口。需要本机已有 Node.js 24+ 和 WebView2 Runtime，详见[桌面版说明](docs/desktop.md)。以下命令安装用于可选的 Codex 插件与原生输入集成。
+
 ## 能做什么
 
 - 一个群绑定一个 Git 项目，成员使用独立工作树；变更经过验证后串行整合。

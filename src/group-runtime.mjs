@@ -39,7 +39,7 @@ export function codexWriterRefusal(store, group, delivery) {
 
 export function nativeAppPresence() {
   if (process.platform !== 'win32') return Promise.resolve(false);
-  return new Promise((resolve, reject) => execFile('powershell', ['-NoProfile', '-Command', "(Get-Process -Name ChatGPT,Codex,'DeepSeek Harness' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Measure-Object).Count"],
+  return new Promise((resolve, reject) => execFile('powershell', ['-NoProfile', '-Command', "(Get-Process -Name ChatGPT,Codex,CodexHarness,'DeepSeek Harness' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Measure-Object).Count"],
     { encoding: 'utf8', windowsHide: true, timeout: 10000, maxBuffer: 65536 }, (error, stdout) => {
       if (error) return reject(error);
       const count = stdout.trim();

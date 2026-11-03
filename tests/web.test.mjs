@@ -10,6 +10,7 @@ function element() {
     setAttribute() {}, addEventListener() {}, scrollIntoView() {}, focus() {}, classList: { toggle() {} }, querySelectorAll: () => [] };
   Object.defineProperty(e, 'childElementCount', { get: () => e.children.length });
   e.elements = { namedItem: () => element() };
+  e.showModal=function(){this.open=true;};e.close=function(){this.open=false;this.onclose?.();};
   e.querySelector = () => e.label ??= element();
   return e;
 }
@@ -27,6 +28,18 @@ test('workspace keeps existing controls and accessible responsive landmarks', ()
   assert.match(html, /<div id="aiIssue"[^>]*>[\s\S]*?id="settle"[\s\S]*?id="retry"/);
   for (const id of ['pause','resume','settle','retry','sendButton']) assert.equal((html.match(new RegExp('id="'+id+'"','g'))||[]).length,1);
   assert.match(html,/button,\.menu>summary,\.budget>summary\{min-height:40px\}/);
+});
+
+test('model management opens inside the workspace and preserves the current group draft',async()=>{
+ const p=await page();p.type('keep my current group draft');p.get('openConnections').onclick();assert.equal(p.get('connectionsDialog').open,true);assert.equal(p.get('connectionsFrame').src,'/connections#test');assert.equal(p.get('text').value,'keep my current group draft');p.get('closeConnections').onclick();assert.equal(p.get('connectionsFrame').src,'about:blank');assert.equal(p.get('text').value,'keep my current group draft');
+});
+
+test('only the owned model frame can select a saved connection for a new group',async()=>{
+ const id='12345678-1234-4234-8234-123456789012',p=await page(new Map(),{connectionCatalog:{connections:[{id,name:'test API',kind:'api',model:'test-model'}]},location:{pathname:'/g/aa',hash:'#test',origin:'http://127.0.0.1'}});
+ const frame={};p.get('connectionsFrame').contentWindow=frame;p.get('createForm').elements.harnessModel.value='unchanged';
+ p.context.handoff={origin:'https://evil.example',source:frame,data:{type:'model-connection:use',id}};await vm.runInContext('handleConnectionMessage(handoff)',p.context);assert.equal(p.get('createForm').elements.harnessModel.value,'unchanged');
+ p.context.handoff={origin:'http://127.0.0.1',source:{},data:{type:'model-connection:use',id}};await vm.runInContext('handleConnectionMessage(handoff)',p.context);assert.equal(p.get('createForm').elements.harnessModel.value,'unchanged');
+ p.context.handoff={origin:'http://127.0.0.1',source:frame,data:{type:'model-connection:use',id}};await vm.runInContext('handleConnectionMessage(handoff)',p.context);assert.equal(p.get('peerConnection').value,id);assert.equal(p.get('createForm').elements.harnessModel.value,'test-model');assert.equal(p.get('settingsDialog').open,true);assert.equal(p.get('approvalOwnerThreadId').required,true);assert.equal(p.state.inputs.length,0);
 });
 
 test('desktop answer sidebar and backdrop are direct children of the conversation grid', () => {
@@ -63,6 +76,7 @@ async function page(storage = new Map(), browser = {}) {
     if (state.intercept) data = await state.intercept(route, options);
     if (data === undefined) {
       if (route === '/projects/defaults') data = { projectsRoot: '/projects' };
+      else if(route==='/connections')data=browser.connectionCatalog||{connections:[]};
       else if (route === '/groups') data = { groups: ['aa', 'bb'].map(group) };
       else if (/\/messages\?/.test(route)) data = { messages: [], nextCursor: 0 };
       else if (/\/input$/.test(route)) { state.inputs.push({ route, body: JSON.parse(options.body) }); data = {}; }

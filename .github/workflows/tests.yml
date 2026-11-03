@@ -13,3 +13,4 @@ jobs:
           node-version: '24'
       - run: node scripts/check.mjs
       - run: node --test --test-concurrency=4 tests/*.test.mjs
+      - run: node scripts/build-desktop.mjs
