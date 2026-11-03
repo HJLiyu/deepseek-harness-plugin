@@ -62,7 +62,7 @@ namespace CodexHarnessDesktop {
     static string FindNode(){foreach(string p in (Environment.GetEnvironmentVariable("PATH")??"").Split(Path.PathSeparator)){try{string f=Path.Combine(p.Trim('"'),"node.exe");if(File.Exists(f))return f;}catch{}}return "";}
     public static string InstallExe;
     public static void Install(Settings settings){
-      string source=AppDomain.CurrentDomain.BaseDirectory,programRoot=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","CodexHarness"),target=Path.Combine(programRoot,"versions","0.4.0-preview.1");
+      string source=AppDomain.CurrentDomain.BaseDirectory,programRoot=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","CodexHarness"),target=Path.Combine(programRoot,"versions","0.4.0-preview.2");
       var manifest=Json.Deserialize<Dictionary<string,object>>(File.ReadAllText(Path.Combine(source,"desktop-files.json")));var files=(System.Collections.IEnumerable)manifest["files"];
       if(!File.Exists(settings.NodePath))throw new Exception("安装前请安装 Node.js 24+。");
       CoreWebView2Environment.GetAvailableBrowserVersionString();
@@ -78,7 +78,7 @@ namespace CodexHarnessDesktop {
         string link=Path.Combine(folder,"CodexHarness Desktop.lnk");if(File.Exists(link)){dynamic old=shell.CreateShortcut(link);string oldTarget=old.TargetPath;if(!oldTarget.StartsWith(programRoot+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase))continue;}
         dynamic shortcut=shell.CreateShortcut(link);shortcut.TargetPath=InstallExe;shortcut.WorkingDirectory=target;shortcut.Description="Codex × Harness 群聊与模型工作台";shortcut.IconLocation=InstallExe;shortcut.Save();
       }
-      using(var key=Registry.CurrentUser.CreateSubKey(@"Software\CodexHarness")){key.SetValue("InstallLocation",target);key.SetValue("Version","0.4.0-preview.1");}
+      using(var key=Registry.CurrentUser.CreateSubKey(@"Software\CodexHarness")){key.SetValue("InstallLocation",target);key.SetValue("Version","0.4.0-preview.2");}
     }
     public static bool IsLocalUrl(string value){Uri u;return Uri.TryCreate(value,UriKind.Absolute,out u)&&u.Scheme=="http"&&u.Host=="127.0.0.1"&&String.IsNullOrEmpty(u.UserInfo)&&u.Port>0;}
     public static string Hash(string value){using(var sha=SHA256.Create()){return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(value))).Replace("-","").Substring(0,20);}}

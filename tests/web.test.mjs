@@ -31,7 +31,7 @@ test('workspace keeps existing controls and accessible responsive landmarks', ()
 });
 
 test('model management opens inside the workspace and preserves the current group draft',async()=>{
- const p=await page();p.type('keep my current group draft');p.get('openConnections').onclick();assert.equal(p.get('connectionsDialog').open,true);assert.equal(p.get('connectionsFrame').src,'/connections#test');assert.equal(p.get('text').value,'keep my current group draft');p.get('closeConnections').onclick();assert.equal(p.get('connectionsFrame').src,'about:blank');assert.equal(p.get('text').value,'keep my current group draft');
+ const p=await page();p.type('keep my current group draft');p.get('modelConnectionsNav').onclick();assert.equal(p.get('connectionsDialog').open,true);assert.equal(p.get('connectionsFrame').src,'/connections#test');assert.equal(p.get('text').value,'keep my current group draft');p.get('closeConnections').onclick();assert.equal(p.get('connectionsFrame').src,'about:blank');assert.equal(p.get('text').value,'keep my current group draft');
 });
 
 test('only the owned model frame can select a saved connection for a new group',async()=>{
