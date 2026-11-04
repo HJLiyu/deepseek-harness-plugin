@@ -24,7 +24,7 @@ async function start(config){
         if(pid&&alive(pid))throw Error('本机服务仍在运行但暂时无法连接，正在保留检查点并重新检查。');
         d=await ensureGroupService();
       }
-      send({type:'ready',url:d.url+'/#'+d.token});
+      send({type:'ready',url:d.url+'/#'+d.token,dataDir:path.resolve(config.dataDir)});
     }catch{send({type:'disconnected',message:'暂时无法连接本机服务。任务检查点已保留，软件会继续检查连接；也可选择“重新连接”。'});}
     finally{busy=false;}
   };

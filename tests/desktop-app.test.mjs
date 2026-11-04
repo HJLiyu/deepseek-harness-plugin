@@ -15,6 +15,6 @@ test('native host bridge attaches to the canonical coordinator without downgradi
  const child=spawn(process.execPath,[path.resolve('desktop/service.mjs')],{stdio:['pipe','pipe','pipe'],windowsHide:true});let done=false;const exit=new Promise(r=>child.once('exit',code=>{done=true;r(code);}));
  t.after(async()=>{if(!done){child.kill();await exit;}server.closeAllConnections();await new Promise(r=>server.close(r));fs.rmSync(root,{recursive:true});});
  const lines=readline.createInterface({input:child.stdout}),ready=new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Host ready timeout')),10000);lines.on('line',line=>{const m=JSON.parse(line);clearTimeout(timer);resolve(m);});});
- child.stdin.write(JSON.stringify({action:'start',dataDir:root})+'\n');const first=await ready;assert.equal(first.type,'ready');assert.equal(first.url,url+'/#test-only-native-host-token');
+ child.stdin.write(JSON.stringify({action:'start',dataDir:root})+'\n');const first=await ready;assert.equal(first.type,'ready');assert.equal(first.url,url+'/#test-only-native-host-token');assert.equal(first.dataDir,root);
  child.stdin.write('{"action":"stop"}\n');child.stdin.end();assert.equal(await exit,0);lines.close();assert.equal(server.listening,true);assert.deepEqual(calls,['/api/health']);
 });

@@ -30,21 +30,27 @@ namespace CodexHarnessDesktop {
   public static class Program {
     public static readonly JavaScriptSerializer Json=new JavaScriptSerializer {MaxJsonLength=2*1024*1024};
     public static string UiRoot;
+    // AppData can be redirected for a packaged installer while Explorer launches
+    // the same EXE outside that package. Keep the binding outside that redirect.
+    public static readonly string SharedConfigFile=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),".codex","codex-harness-desktop","appsettings.json");
+    public static string LoadedConfigFile;
     [STAThread] public static void Main(string[] args){
       Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
       try {
-        string config=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CodexHarness","appsettings.json");
+        string legacyConfig=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CodexHarness","appsettings.json");
+        string config=File.Exists(SharedConfigFile)?SharedConfigFile:legacyConfig;
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--config")config=Path.GetFullPath(args[i+1]);
+        LoadedConfigFile=config;
         var settings=File.Exists(config)?Json.Deserialize<Settings>(File.ReadAllText(config)):new Settings();
         settings.RuntimeRoot=settings.RuntimeRoot??Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"runtime");
-        settings.DataDir=settings.DataDir??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),".codex","deepseek-harness-plugin-data");
+        settings.DataDir=settings.DataDir??Environment.GetEnvironmentVariable("HARNESS_PLUGIN_DATA")??Environment.GetEnvironmentVariable("PLUGIN_DATA")??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),".codex","deepseek-harness-plugin-data");
         settings.UiDataDir=settings.UiDataDir??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CodexHarness","ui");
         settings.NodePath=settings.NodePath??FindNode();UiRoot=settings.UiDataDir;Directory.CreateDirectory(UiRoot);
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--data-dir")settings.DataDir=Path.GetFullPath(args[i+1]);
         foreach(string arg in args)if(arg=="--install"){Install(settings);Console.WriteLine(Json.Serialize(new{installed=true,path=InstallExe}));if(Array.IndexOf(args,"--quiet")<0)MessageBox.Show("安装完成。可从桌面或开始菜单打开 Codex × Harness。","Codex × Harness");return;}
         foreach(string arg in args)if(arg=="--self-test"){
           if(!IsLocalUrl("http://127.0.0.1:1234/#test")||IsLocalUrl("https://example.com")||IsLocalUrl("http://127.0.0.1:1234@evil.com"))throw new Exception("Navigation policy failed");
-          Console.WriteLine(Json.Serialize(new{ok=true,webViewRuntime=CoreWebView2Environment.GetAvailableBrowserVersionString(),nodeFound=File.Exists(settings.NodePath)}));return;
+          Console.WriteLine(Json.Serialize(new{ok=true,webViewRuntime=CoreWebView2Environment.GetAvailableBrowserVersionString(),nodeFound=File.Exists(settings.NodePath),configFile=LoadedConfigFile,dataDir=Path.GetFullPath(settings.DataDir)}));return;
         }
         string identity=WindowsIdentity.GetCurrent().User.Value+"-"+Hash(Path.GetFullPath(settings.DataDir).ToLowerInvariant());
         bool first;using(var mutex=new Mutex(true,"Local\\CodexHarness-"+identity,out first)){
@@ -62,7 +68,7 @@ namespace CodexHarnessDesktop {
     static string FindNode(){foreach(string p in (Environment.GetEnvironmentVariable("PATH")??"").Split(Path.PathSeparator)){try{string f=Path.Combine(p.Trim('"'),"node.exe");if(File.Exists(f))return f;}catch{}}return "";}
     public static string InstallExe;
     public static void Install(Settings settings){
-      string source=AppDomain.CurrentDomain.BaseDirectory,programRoot=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","CodexHarness"),target=Path.Combine(programRoot,"versions","0.4.0-preview.2");
+      string source=AppDomain.CurrentDomain.BaseDirectory,programRoot=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","CodexHarness"),target=Path.Combine(programRoot,"versions","0.4.0-preview.3");
       var manifest=Json.Deserialize<Dictionary<string,object>>(File.ReadAllText(Path.Combine(source,"desktop-files.json")));var files=(System.Collections.IEnumerable)manifest["files"];
       if(!File.Exists(settings.NodePath))throw new Exception("安装前请安装 Node.js 24+。");
       CoreWebView2Environment.GetAvailableBrowserVersionString();
@@ -72,13 +78,13 @@ namespace CodexHarnessDesktop {
       foreach(var item in files){string relative=item as string;if(relative==null||Path.IsPathRooted(relative)||relative.Contains(".."))throw new Exception("Invalid release manifest.");string from=Path.GetFullPath(Path.Combine(source,relative)),to=Path.GetFullPath(Path.Combine(target,relative));if(!from.StartsWith(Path.GetFullPath(source),StringComparison.OrdinalIgnoreCase)||!to.StartsWith(Path.GetFullPath(target)+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)||!File.Exists(from))throw new Exception("Incomplete release package.");Directory.CreateDirectory(Path.GetDirectoryName(to));if(!String.Equals(from,to,StringComparison.OrdinalIgnoreCase))File.Copy(from,to,true);}
       if(!String.Equals(Path.GetFullPath(source).TrimEnd(Path.DirectorySeparatorChar),Path.GetFullPath(target).TrimEnd(Path.DirectorySeparatorChar),StringComparison.OrdinalIgnoreCase))File.Copy(Path.Combine(source,"desktop-files.json"),Path.Combine(target,"desktop-files.json"),true);
       string userRoot=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CodexHarness");Directory.CreateDirectory(userRoot);settings.RuntimeRoot=Path.Combine(target,"runtime");
-      File.WriteAllText(Path.Combine(userRoot,"appsettings.json"),Json.Serialize(settings),Encoding.UTF8);
+      Directory.CreateDirectory(Path.GetDirectoryName(SharedConfigFile));File.WriteAllText(SharedConfigFile,Json.Serialize(settings),Encoding.UTF8);
       dynamic shell=Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell"));
       foreach(string folder in new[]{Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),Environment.GetFolderPath(Environment.SpecialFolder.Programs)}){
         string link=Path.Combine(folder,"CodexHarness Desktop.lnk");if(File.Exists(link)){dynamic old=shell.CreateShortcut(link);string oldTarget=old.TargetPath;if(!oldTarget.StartsWith(programRoot+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase))continue;}
         dynamic shortcut=shell.CreateShortcut(link);shortcut.TargetPath=InstallExe;shortcut.WorkingDirectory=target;shortcut.Description="Codex × Harness 群聊与模型工作台";shortcut.IconLocation=InstallExe;shortcut.Save();
       }
-      using(var key=Registry.CurrentUser.CreateSubKey(@"Software\CodexHarness")){key.SetValue("InstallLocation",target);key.SetValue("Version","0.4.0-preview.2");}
+      using(var key=Registry.CurrentUser.CreateSubKey(@"Software\CodexHarness")){key.SetValue("InstallLocation",target);key.SetValue("Version","0.4.0-preview.3");}
     }
     public static bool IsLocalUrl(string value){Uri u;return Uri.TryCreate(value,UriKind.Absolute,out u)&&u.Scheme=="http"&&u.Host=="127.0.0.1"&&String.IsNullOrEmpty(u.UserInfo)&&u.Port>0;}
     public static string Hash(string value){using(var sha=SHA256.Create()){return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(value))).Replace("-","").Substring(0,20);}}
@@ -93,8 +99,9 @@ namespace CodexHarnessDesktop {
       try{Icon=Icon.ExtractAssociatedIcon(Application.ExecutablePath);}catch{}
       stateFile=Path.Combine(config.UiDataDir,"session.bin");state=LoadState();saveTimer.Tick+=(s,e)=>{saveTimer.Stop();SaveState();};
       var menu=new MenuStrip();var app=new ToolStripMenuItem("应用");app.DropDownItems.Add("重新连接",null,async(s,e)=>await Connect());app.DropDownItems.Add("打开数据目录",null,(s,e)=>{Directory.CreateDirectory(config.DataDir);Process.Start("explorer.exe",config.DataDir);});app.DropDownItems.Add("退出",null,(s,e)=>Close());menu.Items.Add(app);
+      app.DropDownItems.Insert(2,new ToolStripMenuItem("查看数据源",null,(s,e)=>MessageBox.Show("群聊数据目录：\n"+config.DataDir+"\n\n配置文件：\n"+Program.LoadedConfigFile+"\n\n桌面版与网页版连接同一数据目录时，共用项目群和记录，无需复制或导入。","当前数据源")));
       app.DropDownItems.Insert(1,new ToolStripMenuItem("安装到此电脑",null,(s,e)=>{try{Program.Install(config);MessageBox.Show("安装完成。桌面和开始菜单已添加入口，群聊数据保持不变。","Codex × Harness");}catch(Exception error){ShowError("安装未完成："+Program.Safe(error.Message),error);}}));
-      var help=new ToolStripMenuItem("帮助");help.DropDownItems.Add("项目与反馈",null,(s,e)=>OpenExternal("https://github.com/HJLiyu/deepseek-harness-plugin"));help.DropDownItems.Add("关于",null,(s,e)=>MessageBox.Show("Codex × Harness Desktop 0.4.0-preview\n群聊、模型接入和协作工作台\n本机运行，使用既有项目与会话。","关于"));menu.Items.Add(help);MainMenuStrip=menu;
+      var help=new ToolStripMenuItem("帮助");help.DropDownItems.Add("项目与反馈",null,(s,e)=>OpenExternal("https://github.com/HJLiyu/deepseek-harness-plugin"));help.DropDownItems.Add("关于",null,(s,e)=>MessageBox.Show("Codex × Harness Desktop 0.4.0-preview.3\n群聊、模型接入和协作工作台\n本机运行，使用既有项目与会话。","关于"));menu.Items.Add(help);MainMenuStrip=menu;
       var footer=new StatusStrip();status.Text="正在启动本机服务…";footer.Items.Add(status);
       web.Dock=DockStyle.Fill;web.Visible=false;errorPanel.Dock=DockStyle.Fill;errorPanel.Padding=new Padding(40);errorLabel.Dock=DockStyle.Top;errorLabel.Height=120;errorLabel.Font=new Font("Microsoft YaHei UI",12);errorLabel.Text="正在启动 Codex × Harness…";
       var retry=new Button{Text="重新连接",Dock=DockStyle.Top,Height=44};retry.Click+=async(s,e)=>await Connect();errorPanel.Controls.Add(retry);errorPanel.Controls.Add(errorLabel);
@@ -122,9 +129,9 @@ namespace CodexHarnessDesktop {
           string restore=Program.Json.Serialize(state.Session);
           await core.AddScriptToExecuteOnDocumentCreatedAsync("if(location.hostname==='127.0.0.1'&&window===window.top){window.__CODEX_HARNESS_DESKTOP__=true;const saved="+restore+";for(const k of Object.keys(saved))sessionStorage.setItem(k,saved[k]);const original=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){original.call(this,k,v);if(this===sessionStorage&&['groupDrafts/v1','group-preview-open','group-preview-width'].includes(k))window.chrome.webview.postMessage({type:'session',key:k,value:String(v)});};}");
         }
-        var info=new ProcessStartInfo(config.NodePath,"\""+entry+"\""){WorkingDirectory=config.RuntimeRoot,UseShellExecute=false,CreateNoWindow=true,RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true,StandardOutputEncoding=Encoding.UTF8,StandardErrorEncoding=Encoding.UTF8};info.EnvironmentVariables["ELECTRON_RUN_AS_NODE"]="1";
+        var info=new ProcessStartInfo(config.NodePath,"\""+entry+"\""){WorkingDirectory=config.RuntimeRoot,UseShellExecute=false,CreateNoWindow=true,RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true,StandardOutputEncoding=Encoding.UTF8,StandardErrorEncoding=Encoding.UTF8};info.EnvironmentVariables["ELECTRON_RUN_AS_NODE"]="1";info.EnvironmentVariables["HARNESS_PLUGIN_DATA"]=config.DataDir;
         bridge=new Process{StartInfo=info,EnableRaisingEvents=true};var owned=bridge;
-        owned.OutputDataReceived+=(s,e)=>{if(e.Data==null||e.Data.Length>32768||closing)return;try{var m=Program.Json.Deserialize<Dictionary<string,object>>(e.Data);BeginInvoke((Action)(()=>{if(bridge!=owned||closing)return;var type=m["type"] as string;if(type=="ready")Ready(m["url"] as string);else if(type=="disconnected"||type=="error"){status.Text=m["message"] as string;if(!web.Visible)errorLabel.Text=status.Text;}}));}catch{}};
+        owned.OutputDataReceived+=(s,e)=>{if(e.Data==null||e.Data.Length>32768||closing)return;try{var m=Program.Json.Deserialize<Dictionary<string,object>>(e.Data);BeginInvoke((Action)(()=>{if(bridge!=owned||closing)return;var type=m["type"] as string;if(type=="ready"){var selected=m.ContainsKey("dataDir")?m["dataDir"] as string:null;if(selected==null||!String.Equals(Path.GetFullPath(selected),Path.GetFullPath(config.DataDir),StringComparison.OrdinalIgnoreCase)){ShowError("连接的数据源与当前配置不一致，请在“应用 → 查看数据源”中核对。",null);return;}Ready(m["url"] as string);}else if(type=="disconnected"||type=="error"){status.Text=m["message"] as string;if(!web.Visible)errorLabel.Text=status.Text;}}));}catch{}};
         owned.ErrorDataReceived+=(s,e)=>{if(!String.IsNullOrEmpty(e.Data))Program.Log(new Exception("本机服务启动器报告错误；请检查数据目录与运行文件。"));};
         owned.Exited+=(s,e)=>{if(!closing)try{BeginInvoke((Action)(()=>{if(bridge==owned)ShowError("本机连接进程已退出，请选择重新连接。",null);}));}catch{}};
         owned.Start();owned.BeginOutputReadLine();owned.BeginErrorReadLine();owned.StandardInput.WriteLine(Program.Json.Serialize(new{action="start",dataDir=config.DataDir}));
