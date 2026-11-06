@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Threading;
@@ -24,6 +25,8 @@ namespace CodexHarnessDesktop {
   }
   public sealed class SavedState {
     public string LastPath {get;set;}
+    public string Theme {get;set;}
+    public string ThemeMode {get;set;}
     public Dictionary<string,string> Session {get;set;}
     public SavedState(){Session=new Dictionary<string,string>();LastPath="/";}
   }
@@ -68,7 +71,7 @@ namespace CodexHarnessDesktop {
     static string FindNode(){foreach(string p in (Environment.GetEnvironmentVariable("PATH")??"").Split(Path.PathSeparator)){try{string f=Path.Combine(p.Trim('"'),"node.exe");if(File.Exists(f))return f;}catch{}}return "";}
     public static string InstallExe;
     public static void Install(Settings settings){
-      string source=AppDomain.CurrentDomain.BaseDirectory,programRoot=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","CodexHarness"),target=Path.Combine(programRoot,"versions","0.4.0-preview.3");
+      string source=AppDomain.CurrentDomain.BaseDirectory,programRoot=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),"Applications","CodexHarness"),target=Path.Combine(programRoot,"versions","0.4.0-preview.4");
       var manifest=Json.Deserialize<Dictionary<string,object>>(File.ReadAllText(Path.Combine(source,"desktop-files.json")));var files=(System.Collections.IEnumerable)manifest["files"];
       if(!File.Exists(settings.NodePath))throw new Exception("安装前请安装 Node.js 24+。");
       CoreWebView2Environment.GetAvailableBrowserVersionString();
@@ -81,31 +84,79 @@ namespace CodexHarnessDesktop {
       Directory.CreateDirectory(Path.GetDirectoryName(SharedConfigFile));File.WriteAllText(SharedConfigFile,Json.Serialize(settings),Encoding.UTF8);
       dynamic shell=Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell"));
       foreach(string folder in new[]{Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),Environment.GetFolderPath(Environment.SpecialFolder.Programs)}){
-        string link=Path.Combine(folder,"CodexHarness Desktop.lnk");if(File.Exists(link)){dynamic old=shell.CreateShortcut(link);string oldTarget=old.TargetPath;if(!oldTarget.StartsWith(programRoot+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase))continue;}
+        string link=Path.Combine(folder,"CodexHarness Desktop.lnk");if(File.Exists(link)){dynamic old=shell.CreateShortcut(link);string oldTarget=old.TargetPath;string legacyRoot=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","CodexHarness")+Path.DirectorySeparatorChar;if(!oldTarget.StartsWith(programRoot+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)&&!oldTarget.StartsWith(legacyRoot,StringComparison.OrdinalIgnoreCase))continue;}
         dynamic shortcut=shell.CreateShortcut(link);shortcut.TargetPath=InstallExe;shortcut.WorkingDirectory=target;shortcut.Description="Codex × Harness 群聊与模型工作台";shortcut.IconLocation=InstallExe;shortcut.Save();
       }
-      using(var key=Registry.CurrentUser.CreateSubKey(@"Software\CodexHarness")){key.SetValue("InstallLocation",target);key.SetValue("Version","0.4.0-preview.3");}
+      using(var key=Registry.CurrentUser.CreateSubKey(@"Software\CodexHarness")){key.SetValue("InstallLocation",target);key.SetValue("Version","0.4.0-preview.4");}
     }
     public static bool IsLocalUrl(string value){Uri u;return Uri.TryCreate(value,UriKind.Absolute,out u)&&u.Scheme=="http"&&u.Host=="127.0.0.1"&&String.IsNullOrEmpty(u.UserInfo)&&u.Port>0;}
     public static string Hash(string value){using(var sha=SHA256.Create()){return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(value))).Replace("-","").Substring(0,20);}}
     public static string Safe(string value){return Regex.Replace(value??"","(?:#[A-Za-z0-9]+|Bearer\\s+[^\\s\"']+)","[redacted]").Substring(0,Math.Min(800,Regex.Replace(value??"","(?:#[A-Za-z0-9]+|Bearer\\s+[^\\s\"']+)","[redacted]").Length));}
     public static void Log(Exception e){try{string dir=UiRoot??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CodexHarness","ui");Directory.CreateDirectory(dir);string f=Path.Combine(dir,"desktop.log");if(File.Exists(f)&&new FileInfo(f).Length>5*1024*1024){for(int i=2;i>=1;i--){string a=f+"."+i,b=f+"."+(i+1);if(File.Exists(b))File.Delete(b);if(File.Exists(a))File.Move(a,b);}File.Move(f,f+".1");}File.AppendAllText(f,DateTime.UtcNow.ToString("o")+" "+e.GetType().Name+": "+Safe(e.Message)+Environment.NewLine);}catch{}}
   }
+  public sealed class ChromeColors:ProfessionalColorTable {
+    public readonly Color Surface,Text,Muted,Hover,Line;
+    public ChromeColors(bool dark){UseSystemColors=false;Surface=ColorTranslator.FromHtml(dark?"#24242b":"#f4f7f6");Text=ColorTranslator.FromHtml(dark?"#ededf3":"#202b28");Muted=ColorTranslator.FromHtml(dark?"#b0b0bf":"#626e69");Hover=ColorTranslator.FromHtml(dark?"#34343f":"#e9eeec");Line=ColorTranslator.FromHtml(dark?"#3e3e4b":"#dde5e1");}
+    public override Color MenuStripGradientBegin{get{return Surface;}}
+    public override Color MenuStripGradientEnd{get{return Surface;}}
+    public override Color ToolStripGradientBegin{get{return Surface;}}
+    public override Color ToolStripGradientMiddle{get{return Surface;}}
+    public override Color ToolStripGradientEnd{get{return Surface;}}
+    public override Color StatusStripGradientBegin{get{return Surface;}}
+    public override Color StatusStripGradientEnd{get{return Surface;}}
+    public override Color ToolStripDropDownBackground{get{return Surface;}}
+    public override Color ImageMarginGradientBegin{get{return Surface;}}
+    public override Color ImageMarginGradientMiddle{get{return Surface;}}
+    public override Color ImageMarginGradientEnd{get{return Surface;}}
+    public override Color MenuItemSelected{get{return Hover;}}
+    public override Color MenuItemSelectedGradientBegin{get{return Hover;}}
+    public override Color MenuItemSelectedGradientEnd{get{return Hover;}}
+    public override Color MenuItemPressedGradientBegin{get{return Hover;}}
+    public override Color MenuItemPressedGradientMiddle{get{return Hover;}}
+    public override Color MenuItemPressedGradientEnd{get{return Hover;}}
+    public override Color MenuItemBorder{get{return Line;}}
+    public override Color MenuBorder{get{return Line;}}
+    public override Color SeparatorDark{get{return Line;}}
+    public override Color SeparatorLight{get{return Surface;}}
+  }
+  public sealed class ChromeRenderer:ToolStripProfessionalRenderer {
+    readonly ChromeColors palette;
+    public ChromeRenderer(ChromeColors colors):base(colors){palette=colors;RoundedEdges=false;}
+    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e){e.TextColor=e.Item.Enabled?palette.Text:palette.Muted;base.OnRenderItemText(e);}
+    protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e){using(var pen=new Pen(palette.Line))e.Graphics.DrawRectangle(pen,0,0,Math.Max(0,e.ToolStrip.Width-1),Math.Max(0,e.ToolStrip.Height-1));}
+  }
   public sealed class MainWindow:Form {
+    [DllImport("dwmapi.dll")]static extern int DwmSetWindowAttribute(IntPtr hwnd,int attribute,ref int value,int size);
     readonly Settings config;readonly WebView2 web=new WebView2();readonly ToolStripStatusLabel status=new ToolStripStatusLabel();readonly Panel errorPanel=new Panel();readonly Label errorLabel=new Label();
+    readonly MenuStrip menu=new MenuStrip();readonly StatusStrip footer=new StatusStrip{SizingGrip=false};
+    bool darkChrome;
     Process bridge;string origin,currentReady;bool closing,starting;SavedState state;readonly string stateFile;readonly System.Windows.Forms.Timer saveTimer=new System.Windows.Forms.Timer{Interval=400};
     public MainWindow(Settings settings){
       config=settings;Text="Codex × Harness";Width=1380;Height=920;MinimumSize=new Size(820,600);StartPosition=FormStartPosition.CenterScreen;AutoScaleMode=AutoScaleMode.Dpi;
       try{Icon=Icon.ExtractAssociatedIcon(Application.ExecutablePath);}catch{}
       stateFile=Path.Combine(config.UiDataDir,"session.bin");state=LoadState();saveTimer.Tick+=(s,e)=>{saveTimer.Stop();SaveState();};
-      var menu=new MenuStrip();var app=new ToolStripMenuItem("应用");app.DropDownItems.Add("重新连接",null,async(s,e)=>await Connect());app.DropDownItems.Add("打开数据目录",null,(s,e)=>{Directory.CreateDirectory(config.DataDir);Process.Start("explorer.exe",config.DataDir);});app.DropDownItems.Add("退出",null,(s,e)=>Close());menu.Items.Add(app);
+      var app=new ToolStripMenuItem("应用");app.DropDownItems.Add("重新连接",null,async(s,e)=>await Connect());app.DropDownItems.Add("打开数据目录",null,(s,e)=>{Directory.CreateDirectory(config.DataDir);Process.Start("explorer.exe",config.DataDir);});app.DropDownItems.Add("退出",null,(s,e)=>Close());menu.Items.Add(app);
       app.DropDownItems.Insert(2,new ToolStripMenuItem("查看数据源",null,(s,e)=>MessageBox.Show("群聊数据目录：\n"+config.DataDir+"\n\n配置文件：\n"+Program.LoadedConfigFile+"\n\n桌面版与网页版连接同一数据目录时，共用项目群和记录，无需复制或导入。","当前数据源")));
       app.DropDownItems.Insert(1,new ToolStripMenuItem("安装到此电脑",null,(s,e)=>{try{Program.Install(config);MessageBox.Show("安装完成。桌面和开始菜单已添加入口，群聊数据保持不变。","Codex × Harness");}catch(Exception error){ShowError("安装未完成："+Program.Safe(error.Message),error);}}));
-      var help=new ToolStripMenuItem("帮助");help.DropDownItems.Add("项目与反馈",null,(s,e)=>OpenExternal("https://github.com/HJLiyu/deepseek-harness-plugin"));help.DropDownItems.Add("关于",null,(s,e)=>MessageBox.Show("Codex × Harness Desktop 0.4.0-preview.3\n群聊、模型接入和协作工作台\n本机运行，使用既有项目与会话。","关于"));menu.Items.Add(help);MainMenuStrip=menu;
-      var footer=new StatusStrip();status.Text="正在启动本机服务…";footer.Items.Add(status);
+      var help=new ToolStripMenuItem("帮助");help.DropDownItems.Add("项目与反馈",null,(s,e)=>OpenExternal("https://github.com/HJLiyu/deepseek-harness-plugin"));help.DropDownItems.Add("关于",null,(s,e)=>MessageBox.Show("Codex × Harness Desktop 0.4.0-preview.4\n群聊、模型接入和协作工作台\n本机运行，使用既有项目与会话。","关于"));menu.Items.Add(help);MainMenuStrip=menu;
+      status.Text="正在启动本机服务…";footer.Items.Add(status);
       web.Dock=DockStyle.Fill;web.Visible=false;errorPanel.Dock=DockStyle.Fill;errorPanel.Padding=new Padding(40);errorLabel.Dock=DockStyle.Top;errorLabel.Height=120;errorLabel.Font=new Font("Microsoft YaHei UI",12);errorLabel.Text="正在启动 Codex × Harness…";
       var retry=new Button{Text="重新连接",Dock=DockStyle.Top,Height=44};retry.Click+=async(s,e)=>await Connect();errorPanel.Controls.Add(retry);errorPanel.Controls.Add(errorLabel);
       Controls.Add(web);Controls.Add(errorPanel);Controls.Add(footer);Controls.Add(menu);Shown+=async(s,e)=>await Connect();FormClosing+=(s,e)=>{closing=true;SaveState();StopBridge();web.Dispose();};
+      HandleCreated+=(s,e)=>ApplyChromeTheme(darkChrome);
+      ApplyChromeTheme(state.ThemeMode=="dark"||state.ThemeMode!="light"&&SystemUsesDarkTheme());
+    }
+    static bool SystemUsesDarkTheme(){try{return Convert.ToInt32(Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize","AppsUseLightTheme",1))==0;}catch{return false;}}
+    static int ColorRef(Color color){return color.R|(color.G<<8)|(color.B<<16);}
+    void ApplyChromeTheme(bool dark){
+      darkChrome=dark;var colors=new ChromeColors(dark);var renderer=new ChromeRenderer(colors);
+      BackColor=dark?ColorTranslator.FromHtml("#1b1b20"):Color.White;ForeColor=colors.Text;web.DefaultBackgroundColor=BackColor;
+      menu.BackColor=footer.BackColor=colors.Surface;menu.ForeColor=colors.Text;footer.ForeColor=status.ForeColor=colors.Muted;menu.Renderer=renderer;footer.Renderer=renderer;
+      foreach(ToolStripMenuItem item in menu.Items){item.ForeColor=colors.Text;item.DropDown.BackColor=colors.Surface;item.DropDown.ForeColor=colors.Text;item.DropDown.Renderer=renderer;}
+      errorPanel.BackColor=BackColor;errorLabel.ForeColor=colors.Text;
+      foreach(Control control in errorPanel.Controls){var button=control as Button;if(button!=null){button.FlatStyle=FlatStyle.Flat;button.BackColor=colors.Surface;button.ForeColor=colors.Text;button.FlatAppearance.BorderColor=colors.Line;}}
+      if(IsHandleCreated)try{int enabled=dark?1:0;DwmSetWindowAttribute(Handle,20,ref enabled,4);int caption=dark?ColorRef(colors.Surface):-1,text=dark?ColorRef(colors.Text):-1,border=dark?ColorRef(colors.Line):-1;DwmSetWindowAttribute(Handle,35,ref caption,4);DwmSetWindowAttribute(Handle,36,ref text,4);DwmSetWindowAttribute(Handle,34,ref border,4);}catch(DllNotFoundException){}catch(EntryPointNotFoundException){}
+      menu.Invalidate();footer.Invalidate();Invalidate();
     }
     SavedState LoadState(){try{var bytes=ProtectedData.Unprotect(File.ReadAllBytes(stateFile),null,DataProtectionScope.CurrentUser);return Program.Json.Deserialize<SavedState>(Encoding.UTF8.GetString(bytes))??new SavedState();}catch{return new SavedState();}}
     void SaveState(){try{var bytes=ProtectedData.Protect(Encoding.UTF8.GetBytes(Program.Json.Serialize(state)),null,DataProtectionScope.CurrentUser);string temporary=stateFile+".tmp";File.WriteAllBytes(temporary,bytes);if(File.Exists(stateFile))File.Replace(temporary,stateFile,null);else File.Move(temporary,stateFile);}catch(Exception e){Program.Log(e);}}
@@ -125,7 +176,8 @@ namespace CodexHarnessDesktop {
           core.PermissionRequested+=(s,e)=>e.State=CoreWebView2PermissionState.Deny;core.DownloadStarting+=(s,e)=>e.Cancel=true;
           core.ProcessFailed+=(s,e)=>ShowError("界面进程已停止。任务由本机服务保留，请选择重新连接。",null);
           core.SourceChanged+=(s,e)=>{Uri u;if(Uri.TryCreate(core.Source,UriKind.Absolute,out u)&&u.GetLeftPart(UriPartial.Authority)==origin&&Regex.IsMatch(u.AbsolutePath,@"^/(?:g/[0-9a-f-]+)?$")){state.LastPath=u.AbsolutePath;ScheduleSave();}};
-          core.WebMessageReceived+=(s,e)=>{try{Uri u;if(!Uri.TryCreate(e.Source,UriKind.Absolute,out u)||u.GetLeftPart(UriPartial.Authority)!=origin)return;var m=Program.Json.Deserialize<Dictionary<string,object>>(e.WebMessageAsJson);string key=m.ContainsKey("key")?m["key"] as string:null;if(m.ContainsKey("type")&&(m["type"] as string)=="session"&&AllowedKey(key)&&m.ContainsKey("value")){string value=m["value"] as string;if(value!=null&&value.Length<=700000){state.Session[key]=value;ScheduleSave();}}}catch{}};
+          core.WebMessageReceived+=(s,e)=>{try{Uri u;if(!Uri.TryCreate(e.Source,UriKind.Absolute,out u)||u.GetLeftPart(UriPartial.Authority)!=origin)return;var m=Program.Json.Deserialize<Dictionary<string,object>>(e.WebMessageAsJson);string type=m.ContainsKey("type")?m["type"] as string:null;if(type=="appearance"){string theme=m.ContainsKey("theme")?m["theme"] as string:null,mode=m.ContainsKey("mode")?m["mode"] as string:null;if((theme=="dark"||theme=="light")&&(mode=="dark"||mode=="light"||mode=="auto")){state.Theme=theme;state.ThemeMode=mode;ApplyChromeTheme(theme=="dark");ScheduleSave();}return;}string key=m.ContainsKey("key")?m["key"] as string:null;if(type=="session"&&AllowedKey(key)&&m.ContainsKey("value")){string value=m["value"] as string;if(value!=null&&value.Length<=700000){state.Session[key]=value;ScheduleSave();}}}catch{}};
+          await core.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(Path.Combine(config.RuntimeRoot,"desktop","appearance.js")));
           string restore=Program.Json.Serialize(state.Session);
           await core.AddScriptToExecuteOnDocumentCreatedAsync("if(location.hostname==='127.0.0.1'&&window===window.top){window.__CODEX_HARNESS_DESKTOP__=true;const saved="+restore+";for(const k of Object.keys(saved))sessionStorage.setItem(k,saved[k]);const original=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){original.call(this,k,v);if(this===sessionStorage&&['groupDrafts/v1','group-preview-open','group-preview-width'].includes(k))window.chrome.webview.postMessage({type:'session',key:k,value:String(v)});};}");
         }

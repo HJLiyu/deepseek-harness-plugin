@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import vm from 'node:vm';
-const files = ['server.mjs', 'cli.mjs', 'worker.mjs', 'group-worker.mjs', 'desktop/service.mjs', 'scripts/build-desktop.mjs'];
+const files = ['server.mjs', 'cli.mjs', 'worker.mjs', 'group-worker.mjs', 'desktop/service.mjs', 'desktop/appearance.js', 'scripts/build-desktop.mjs'];
 for (const dir of ['src', 'hooks', 'companion']) for (const name of fs.readdirSync(dir)) if (/\.(mjs|cjs|js)$/.test(name)) files.push(path.join(dir, name));
 for (const file of files) execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' });
 for (const file of ['plugin.json', 'mcp.json', 'hooks/hooks.json', 'companion/package.json']) JSON.parse(fs.readFileSync(file, 'utf8'));

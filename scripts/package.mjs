@@ -6,7 +6,7 @@ const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const target = path.resolve(process.argv[2] ?? path.join(source, '..', 'plugins', 'codex-deepseek-harness'));
 const files = [
   'plugin.json', 'mcp.json', 'README.md', 'verification.md', 'server.mjs', 'worker.mjs', 'cli.mjs',
-  'desktop/service.mjs',
+  'desktop/service.mjs', 'desktop/appearance.js',
   'docs/connections.md', 'docs/desktop.md',
   'skills/collaborate/SKILL.md',
   'src/rpc.mjs', 'src/state.mjs', 'src/events.mjs', 'src/git.mjs', 'src/codex.mjs',
